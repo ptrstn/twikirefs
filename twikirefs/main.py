@@ -1,3 +1,4 @@
+import argparse
 import json
 
 import cernrequests
@@ -5,6 +6,20 @@ from bs4 import BeautifulSoup
 from cernrequests import get_sso_cookies
 
 TWIKI_URL = "https://twiki.cern.ch/twiki/bin/view/CMS/TrackerOfflineReferenceRuns"
+
+
+def parse_arguments():
+    parser = argparse.ArgumentParser(
+        description="CMS Tracker Twiki reference run retriever",
+    )
+
+
+    parser.add_argument(
+        "--all", help="Get all reference runs", action="store_true"
+    )
+
+    return parser.parse_args()
+
 
 
 def list_to_dict(data, keys):
@@ -32,19 +47,7 @@ def clean_column_name(column_name):
                                                                              "").lower()
 
 
-def main():
-    print("Twiki Reference Runs")
-
-    print()
-    print("Acquiring CERN SSO Cookie for {}...".format(TWIKI_URL))
-    cookies = get_sso_cookies(TWIKI_URL)
-
-    print("Retrieving Twiki page...".format(TWIKI_URL))
-    response = cernrequests.get(TWIKI_URL, cookies=cookies)
-
-    print("Parsing HTML site...")
-    soup = BeautifulSoup(response.content, 'html.parser')
-
+def parse_2018_reference_runs(soup):
     table_names = [
         ("table1", "Heavy Ion Collisions 2018"),
         ("table2", "pp Collisions 2018"),
@@ -69,13 +72,56 @@ def main():
             'data': list_to_dict(data, names)
         })
 
-    print("Done.")
-    print()
-
     for table in tables:
         print("== {} ==".format(table['description']))
         print([run["run_number"] for run in table['data']])
         print()
+
+    return tables
+
+
+def parse_all_reference_runs(soup):
+    tables = []
+
+    for table in soup.findAll("table"):
+
+        data = []
+        names = [clean_column_name(cell.get_text().strip()) for cell in
+                 table.findAll('th')]
+
+        for row in table.findAll("tr"):
+            if row.findAll('td'):
+                data.append([cell.get_text().strip().replace('\xa0', "") for cell in
+                             row.findAll('td')])
+
+        if "run_number" in names:
+            tables.append({
+                "description": "TODO",
+                'data': list_to_dict(data, names)
+            })
+    return tables
+
+
+def main():
+    args = parse_arguments()
+    print("Twiki Reference Runs")
+
+    print()
+    print("Acquiring CERN SSO Cookie for {}...".format(TWIKI_URL))
+    cookies = get_sso_cookies(TWIKI_URL)
+
+    print("Retrieving Twiki page...".format(TWIKI_URL))
+    response = cernrequests.get(TWIKI_URL, cookies=cookies)
+
+    print("Parsing HTML site...")
+    soup = BeautifulSoup(response.content, 'html.parser')
+
+    print("Done.")
+
+    if args.all:
+        tables = parse_all_reference_runs(soup)
+    else:
+        tables = parse_2018_reference_runs(soup)
 
     file_name = "twiki_reference_runs.json"
     with open(file_name, "w") as file:
